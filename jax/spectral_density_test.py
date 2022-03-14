@@ -13,20 +13,17 @@
 # limitations under the License.
 
 """Tests for Hessian density esimate library."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import functools
 from absl import flags
 from absl.testing import absltest
 from jax import test_util as jtu
 from jax.config import config as jax_config
-from jax.experimental import stax
-from jax.experimental.stax import Dense
-from jax.experimental.stax import LogSoftmax
-from jax.experimental.stax import Relu
-from jax.lib.xla_bridge import canonicalize_dtype
+from jax.example_libraries import stax
+from jax.example_libraries.stax import Dense
+from jax.example_libraries.stax import LogSoftmax
+from jax.example_libraries.stax import Relu
+from jax._src.dtypes import canonicalize_dtype
 import jax.numpy as np
 import jax.random as random
 import jax.tree_util as tree_util
@@ -39,7 +36,7 @@ import lanczos
 FLAGS = flags.FLAGS
 
 jax_config.parse_flags_with_absl()
-
+# jax_config.update("jax_numpy_rank_promotion", "allow")
 
 def to_onehot(x, num_class):
   onehot = np.eye(num_class)[x]
@@ -76,6 +73,7 @@ def loss(y, y_hat):
 class SpectralDensityTest(jtu.JaxTestCase):
 
   def testHessianVectorProduct(self):
+    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     key = random.PRNGKey(0)
     input_size = 4
@@ -114,7 +112,7 @@ class SpectralDensityTest(jtu.JaxTestCase):
 
     v_full = np.dot(hessian, v)
 
-    self.assertArraysAllClose(v_hvp, v_full, True, atol=error_tolerance)
+    self.assertArraysAllClose(v_hvp, v_full, atol=error_tolerance)
 
   def testHessianSpectrum(self):
     # TODO(gilmer): It appears that tightness of the lanczsos fit can vary.
@@ -123,6 +121,7 @@ class SpectralDensityTest(jtu.JaxTestCase):
     # best to understand the source of this imprecision, (seed 0 will fail for
     # example). It's possible that double precision is required to get really
     # tight estimates of the spectrum.
+    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     key = random.PRNGKey(0)
     input_size = 2
@@ -173,7 +172,7 @@ class SpectralDensityTest(jtu.JaxTestCase):
     density_true = density_true.astype(canonicalize_dtype(onp.float64))
     self.assertAlmostEqual(np.max(eigs_triag), np.max(eigs_true), delta=atol_e)
     self.assertAlmostEqual(np.min(eigs_triag), np.min(eigs_true), delta=atol_e)
-    self.assertArraysAllClose(density, density_true, True, atol=atol_density,
+    self.assertArraysAllClose(density, density_true, atol=atol_density,
                               rtol=1e-1)
 
 

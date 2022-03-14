@@ -14,20 +14,16 @@
 
 """Tests for Hessian density estimate libraries."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from jax import test_util as jtu
-from jax.api import jit
+from jax import jit
 from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 import numpy as onp
-from spectral_density import density as density_lib
-from spectral_density import lanczos
+import density as density_lib
+import lanczos
 # TODO(yingxiao): factor out the tests for density_lib and lanczos separately.
 
 jax_config.parse_flags_with_absl()
@@ -52,6 +48,7 @@ class LanczosTest(jtu.JaxTestCase):
           'shape': shape
       } for shape in MATRIX_SHAPES))
   def testTridiagEigenvalues(self, shape):
+    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     sigma_squared = 1e-2
 
@@ -80,7 +77,7 @@ class LanczosTest(jtu.JaxTestCase):
 
     self.assertAlmostEqual(np.max(eigs_tridiag), np.max(eigs_true), delta=atol)
     self.assertAlmostEqual(np.min(eigs_tridiag), np.min(eigs_true), delta=atol)
-    self.assertArraysAllClose(density, density_true, True, atol=atol)
+    self.assertArraysAllClose(density, density_true, atol=atol)
 
   @parameterized.named_parameters(
       jtu.cases_from_list({
@@ -99,7 +96,7 @@ class LanczosTest(jtu.JaxTestCase):
     # weighting will be crucial to get a good approximation. However, this unit
     # test is not designed to rigorously test the numerical precision of the
     # lanczos approximation.
-
+    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     sigma_squared = 1e-2
     num_trials = 5
@@ -133,7 +130,7 @@ class LanczosTest(jtu.JaxTestCase):
     density_true, _ = density_lib.eigv_to_density(
         onp.expand_dims(eigs_true, 0), grids=grids, sigma_squared=sigma_squared)
 
-    self.assertAllClose(density, density_true, True, .3)
+    self.assertAllClose(density, density_true, atol=.3)
 
     # Measure the statistical distance between the two distributions.
     self.assertLess(np.mean(np.abs(density-density_true)), 5e-2)

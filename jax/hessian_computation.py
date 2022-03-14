@@ -15,11 +15,12 @@
 """Code to perform Hessian vector products on neural networks.
 """
 
-from jax import jacfwd
-from jax import jacrev
-from jax.api import grad
-from jax.api import jit
-from jax.api import jvp
+# from jax import jacfwd
+# from jax import jacrev
+from jax import hessian
+from jax import grad
+from jax import jit
+from jax import jvp
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 import jax.tree_util as tu
@@ -50,8 +51,8 @@ def full_hessian(loss, params):
     params = unravel(flat_params)
     return loss(params)
 
-  def hessian(f):
-    return jacfwd(jacrev(f))
+  # def hessian(f):
+    # return jacfwd(jacrev(f))
 
   hessian_matrix = hessian(loss_flat)(flat_params)
   return hessian_matrix
