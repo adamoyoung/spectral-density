@@ -70,10 +70,10 @@ def loss(y, y_hat):
   return -np.sum(y * y_hat)
 
 
+@jtu.with_config(jax_numpy_rank_promotion='allow')
 class SpectralDensityTest(jtu.JaxTestCase):
 
   def testHessianVectorProduct(self):
-    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     key = random.PRNGKey(0)
     input_size = 4
@@ -121,7 +121,6 @@ class SpectralDensityTest(jtu.JaxTestCase):
     # best to understand the source of this imprecision, (seed 0 will fail for
     # example). It's possible that double precision is required to get really
     # tight estimates of the spectrum.
-    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     key = random.PRNGKey(0)
     input_size = 2

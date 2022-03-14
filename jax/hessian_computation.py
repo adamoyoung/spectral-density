@@ -51,9 +51,6 @@ def full_hessian(loss, params):
     params = unravel(flat_params)
     return loss(params)
 
-  # def hessian(f):
-    # return jacfwd(jacrev(f))
-
   hessian_matrix = hessian(loss_flat)(flat_params)
   return hessian_matrix
 

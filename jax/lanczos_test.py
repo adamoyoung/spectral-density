@@ -30,6 +30,7 @@ jax_config.parse_flags_with_absl()
 MATRIX_SHAPES = [(10, 10), (15, 15)]
 
 
+@jtu.with_config(jax_numpy_rank_promotion='allow')
 class LanczosTest(jtu.JaxTestCase):
   # pylint: disable=g-complex-comprehension
 
@@ -48,7 +49,6 @@ class LanczosTest(jtu.JaxTestCase):
           'shape': shape
       } for shape in MATRIX_SHAPES))
   def testTridiagEigenvalues(self, shape):
-    jax_config.update("jax_numpy_rank_promotion", "allow")
     onp.random.seed(100)
     sigma_squared = 1e-2
 
