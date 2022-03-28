@@ -20,7 +20,7 @@
 from jax import hessian
 from jax import grad
 from jax import jit
-from jax import jvp
+from jax import jvp, vjp, jacfwd
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 import jax.tree_util as tu
@@ -55,6 +55,19 @@ def full_hessian(loss, params):
   return hessian_matrix
 
 
+def full_jj(loss, params):
+
+  flat_params, unravel = ravel_pytree(params)
+
+  def loss_flat(flat_params):
+    params = unravel(flat_params)
+    return loss(params)
+
+  j = jacfwd(loss_flat)(flat_params).reshape(1,-1)
+  jj_matrix = j.T @ j
+  return jj_matrix
+
+
 # TODO(gilmer, jamieas): consider other options for computing hvp (fwd_over_rev
 # vs rev_over_fwd).
 def hvp(loss, params, batch, v):
@@ -78,6 +91,14 @@ def hvp(loss, params, batch, v):
   return jvp(grad(loss_fn), [params], [v])[1]
 
 
+def jjvp(loss, params, batch, v):
+    # computes J^T @ J @ v, where J is 1xn
+    loss_fn = lambda _params: loss(_params, batch)
+    _jvp = jvp(loss_fn, [params], [v])[1]
+    _jjvp = vjp(loss_fn, params)[1](_jvp)[0]
+    return _jjvp
+
+
 def _tree_sum(tree_left, tree_right):
   """Computes tree_left + tree_right."""
   def f(x, y):
@@ -89,6 +110,44 @@ def _tree_zeros_like(tree):
   def f(x):
     return np.zeros_like(x)
   return tu.tree_map(f, tree)
+
+
+def get_jjvp_fn(loss, params, batches):
+
+  flat_params, unravel = ravel_pytree(params)
+
+  @jit
+  def jitted_jjvp(params, batch, v):
+    return jjvp(loss, params, batch, v)
+
+  def jjvp_fn(params, v):
+    """Maps a vector v to Hv, where H is the hessian.
+
+    Args:
+      params: pytree of model parameters.
+      v: array of size [num_params]
+    Returns:
+      hessian_vp_flat: array of size [num_params] equal to Hv.
+    """
+
+    # The API of the function maps a 1d vector to a 1d vector. However for
+    # efficiency we will perform all operations on the pytree representation
+    # of params.
+    v = unravel(v)  # convert v to the param tree structure
+    jj_vp = _tree_zeros_like(params)
+    # TODO(gilmer): Get rid of this for loop by using either vmap or lax.fori.
+    count = 0
+    for batch in batches():
+      partial_vp = jitted_jjvp(params, batch, v)
+      jj_vp = _tree_sum(jj_vp, partial_vp)
+      count += 1
+    if count == 0:
+      raise ValueError("Provided generator did not yield any data.")
+    jj_vp_flat, _ = ravel_pytree(jj_vp)
+    jj_vp_flat /= count
+    return jj_vp_flat
+
+  return jjvp_fn, unravel, flat_params.shape[0]
 
 
 def get_hvp_fn(loss, params, batches):
