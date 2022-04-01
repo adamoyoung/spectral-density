@@ -41,21 +41,22 @@ def eigenvalue_ratio(eig_vals,k):
     eig_vals_s = eig_vals.reshape(-1)[::-1] # largest to smallest
     return eig_vals_s[0]/eig_vals_s[k-1]
 
-def topk_subspace_gradient_energy_ratio(hvp,jac,eig_vals,k):
+def topk_subspace_gradient_energy_ratio(jjvp,jac,eig_vals,k):
     """
-    Computes the subspace spanned by the top k Hessian eigenvectors, projects the gradient onto that subspace,
-    Then, compute the ratio of the L2 norms of the projected gradient vs the unprojected gradient
+    Compute the subspace spanned by the top k Jacobian covariance eigenvectors, project the gradient onto that subspace,
+    then computes the ratio of the L2 norms of the projected gradient vs the unprojected gradient
     i.e. \frac{\| P \nabla_\theta L(\theta) \|^2_2} {\| \nabla_\theta L(\theta) \|^2_2}
     See Figure 11 of the paper for an example
     TODO: Not sure how to implement most efficiently
     """
     pass
-    # problem: can't solve H x = \lambda_k x exactly, requires inverting H
-    # instead, use scalable root solver (like Broyden, from DEQ paper) to find roots of H x - \lambda_k x
+    # let C be the covariance of the Jacobian
+    # problem: can't solve C x = \lambda_k x exactly, requires inverting C
+    # instead, use scalable root solver (like Broyden, from DEQ paper) to find roots of C x - \lambda_k x
     # citation: https://arxiv.org/pdf/1909.01377.pdf Equation 10 in Section 3.1.3
     # for i = 1 to k    
-    #   solve H x = \lambda_k x approximately
-    #   (H x can be computed with hvp)
+    #   solve C x = \lambda_k x approximately
+    #   (C x can be computed with hvp)
     #   set eigenvector v_k = x^{\star}
     # assemble projection matrix P from eigenvectors { v_k }_k
     # compute P_jac =  P @ jac
