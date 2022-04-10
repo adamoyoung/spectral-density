@@ -82,7 +82,7 @@ def eigv_to_density(eig_vals, all_weights=None, grids=None,
   return density, grids
 
 
-def tridiag_to_eigv(tridiag_list):
+def tridiag_to_eigv(tridiag_list,get_eig_vecs=False):
   """Preprocess the tridiagonal matrices for density estimation.
 
   Args:
@@ -103,6 +103,8 @@ def tridiag_to_eigv(tridiag_list):
   num_lanczos = tridiag_list[0].shape[0]
   eig_vals = np.zeros((num_draws, num_lanczos))
   all_weights = np.zeros((num_draws, num_lanczos))
+  if get_eig_vecs:
+    eig_vecs = np.zeros((num_draws, num_lanczos, num_lanczos))
   for i in range(num_draws):
     nodes, evecs = np.linalg.eigh(tridiag_list[i])
     index = np.argsort(nodes)
@@ -110,7 +112,12 @@ def tridiag_to_eigv(tridiag_list):
     evecs = evecs[:, index]
     eig_vals[i, :] = nodes
     all_weights[i, :] = evecs[0] ** 2
-  return eig_vals, all_weights
+    if get_eig_vecs:
+      eig_vecs[i, :, :] = evecs
+  if get_eig_vecs:
+    return eig_vals, all_weights, eig_vecs
+  else:
+    return eig_vals, all_weights
 
 
 def tridiag_to_density(tridiag_list, sigma_squared=1e-5, grid_len=10000):

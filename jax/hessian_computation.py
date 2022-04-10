@@ -15,12 +15,7 @@
 """Code to perform Hessian vector products on neural networks.
 """
 
-# from jax import jacfwd
-# from jax import jacrev
-from jax import hessian
-from jax import grad
-from jax import jit
-from jax import jvp, vjp, jacfwd
+import jax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 import jax.tree_util as tu
@@ -51,7 +46,7 @@ def full_hessian(loss, params):
     params = unravel(flat_params)
     return loss(params)
 
-  hessian_matrix = hessian(loss_flat)(flat_params)
+  hessian_matrix = jax.hessian(loss_flat)(flat_params)
   return hessian_matrix
 
 
@@ -63,7 +58,7 @@ def full_jj(loss, params):
     params = unravel(flat_params)
     return loss(params)
 
-  j = jacfwd(loss_flat)(flat_params).reshape(1,-1)
+  j = jax.jacfwd(loss_flat)(flat_params).reshape(1,-1)
   jj_matrix = j.T @ j
   return jj_matrix
 
@@ -87,16 +82,32 @@ def hvp(loss, params, batch, v):
     hvp: array of shape [num_params] equal to Hv where H is the hessian.
   """
 
-  loss_fn = lambda x: loss(x, batch)
-  return jvp(grad(loss_fn), [params], [v])[1]
+  loss_fn = lambda params: loss(params, batch)
+  return jax.jvp(jax.grad(loss_fn), [params], [v])[1]
 
 
 def jjvp(loss, params, batch, v):
     # computes J^T @ J @ v, where J is 1xn
     loss_fn = lambda _params: loss(_params, batch)
-    _jvp = jvp(loss_fn, [params], [v])[1]
-    _jjvp = vjp(loss_fn, params)[1](_jvp)[0]
-    return _jjvp
+    jvp = jax.jvp(loss_fn, [params], [v])[1]
+    jjvp = jax.vjp(loss_fn, params)[1](jvp)[0]
+    return jjvp
+
+def jvp(loss, params, batch, v):
+    # computes J @ v
+    import pdb; pdb.set_trace()
+    loss_fn = lambda _params: loss(_params, batch)
+    jvp = jax.jvp(loss_fn, [params], [v])[1]
+    return jvp
+
+def ggnvp(wz_fn, zl_fn, params, batch, v):
+    # compute GGN
+    _wz_fn = lambda _params: wz_fn(_params, batch)
+    wz, wz_jvp = jax.jvp(_wz_fn, [params], [v])
+    zl_jvp, zl_hvp = jax.jvp(jax.grad(zl_fn), [wz], [wz_jvp])
+    wz, zw_jvp_fn = jax.vjp(_wz_fn, params) 
+    zw_zl_wz = zw_jvp_fn(zl_hvp)[0]
+    return zw_zl_wz
 
 
 def _tree_sum(tree_left, tree_right):
@@ -116,20 +127,11 @@ def get_jjvp_fn(loss, params, batches):
 
   flat_params, unravel = ravel_pytree(params)
 
-  @jit
+  @jax.jit
   def jitted_jjvp(params, batch, v):
     return jjvp(loss, params, batch, v)
 
   def jjvp_fn(params, v):
-    """Maps a vector v to Hv, where H is the hessian.
-
-    Args:
-      params: pytree of model parameters.
-      v: array of size [num_params]
-    Returns:
-      hessian_vp_flat: array of size [num_params] equal to Hv.
-    """
-
     # The API of the function maps a 1d vector to a 1d vector. However for
     # efficiency we will perform all operations on the pytree representation
     # of params.
@@ -148,6 +150,30 @@ def get_jjvp_fn(loss, params, batches):
     return jj_vp_flat
 
   return jjvp_fn, unravel, flat_params.shape[0]
+
+
+def get_jvp_fn(loss, params, batches):
+
+  # @jax.jit
+  def jitted_jvp(params, batch, v):
+    return jvp(loss, params, batch, v)
+
+  def jvp_fn(params, v):
+    # The API of the function maps a 1d vector to a 1d vector. However for
+    # efficiency we will perform all operations on the pytree representation
+    # of params.
+    j_vp = _tree_zeros_like(v)
+    # TODO(gilmer): Get rid of this for loop by using either vmap or lax.fori.
+    count = 0
+    for batch in batches():
+      partial_vp = jitted_jvp(params, batch, v)
+      j_vp = _tree_sum(j_vp, partial_vp)
+      count += 1
+    if count == 0:
+      raise ValueError("Provided generator did not yield any data.")
+    return j_vp
+
+  return jvp_fn
 
 
 def get_hvp_fn(loss, params, batches):
@@ -187,20 +213,11 @@ def get_hvp_fn(loss, params, batches):
 
   flat_params, unravel = ravel_pytree(params)
 
-  @jit
+  @jax.jit
   def jitted_hvp(params, batch, v):
     return hvp(loss, params, batch, v)
 
   def hvp_fn(params, v):
-    """Maps a vector v to Hv, where H is the hessian.
-
-    Args:
-      params: pytree of model parameters.
-      v: array of size [num_params]
-    Returns:
-      hessian_vp_flat: array of size [num_params] equal to Hv.
-    """
-
     # The API of the function maps a 1d vector to a 1d vector. However for
     # efficiency we will perform all operations on the pytree representation
     # of params.
@@ -219,3 +236,32 @@ def get_hvp_fn(loss, params, batches):
     return hessian_vp_flat
 
   return hvp_fn, unravel, flat_params.shape[0]
+
+
+def get_ggnvp_fn(wz_fn, zl_fn, params, batches):
+
+  flat_params, unravel = ravel_pytree(params)
+
+  @jax.jit
+  def jitted_ggnvp(params, batch, v):
+    return ggnvp(wz_fn, zl_fn, params, batch, v)
+
+  def ggnvp_fn(params, v):
+    # The API of the function maps a 1d vector to a 1d vector. However for
+    # efficiency we will perform all operations on the pytree representation
+    # of params.
+    v = unravel(v)  # convert v to the param tree structure
+    ggn_vp = _tree_zeros_like(params)
+    # TODO(gilmer): Get rid of this for loop by using either vmap or lax.fori.
+    count = 0
+    for batch in batches():
+      partial_vp = jitted_ggnvp(params, batch, v)
+      ggn_vp = _tree_sum(ggn_vp, partial_vp)
+      count += 1
+    if count == 0:
+      raise ValueError("Provided generator did not yield any data.")
+    ggn_vp_flat, _ = ravel_pytree(ggn_vp)
+    ggn_vp_flat /= count
+    return ggn_vp_flat
+
+  return ggnvp_fn, unravel, flat_params.shape[0]
