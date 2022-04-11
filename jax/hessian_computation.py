@@ -108,7 +108,7 @@ def _tree_sum(tree_left, tree_right):
   """Computes tree_left + tree_right."""
   def f(x, y):
     return x + y
-  return tu.tree_multimap(f, tree_left, tree_right)
+  return tu.tree_map(f, tree_left, tree_right)
 
 
 def _tree_zeros_like(tree):
