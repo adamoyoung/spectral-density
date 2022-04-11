@@ -1,9 +1,11 @@
 import jax
 import jax.numpy as jnp
+from jax.numpy.linalg import norm
 
 """
 Hessian eigenvalue metrics based on descriptions from Ghorbani et al 2019 https://arxiv.org/pdf/1901.10159.pdf
 """
+
 
 def l1_energy(density,grids):
     """
@@ -11,6 +13,7 @@ def l1_energy(density,grids):
     Applies L1 norm to eigenspectrum density
     (since densities are positive, L1 norm of density is just the original density)
     Described in section 3 of the paper
+    Note: if the matrix is PSD, binning might give lots of "negative" energy
     """
     bin_size = grids[1]-grids[0]
     pos_mask = grids>=0.
@@ -24,6 +27,7 @@ def l2_energy(density,grids):
     Integrate the positive and negative portions of the eigenspectrum
     Applies L2 norm to eigenspectrum density
     Described in section 3 of the paper
+    Note: if the matrix is PSD, binning might give lots of "negative" energy
     """
     bin_size = grids[1]-grids[0]
     pos_mask = grids>=0.
@@ -118,20 +122,22 @@ def proj(u,V):
 def gradient_energy_ratio(jac,eig_vecs,lcz_vecs,k):
 
     # compute full eigenvalue
-    jac_energy = jnp.linalg.norm(jac)
-    print(jac_energy)
+    # jac_energy = norm(jac)
     num_draws = eig_vecs.shape[0]
-    ratios = []
+    # ratios = []
+    lcz_ratios = []
     for i in range(num_draws):
         jac_lcz = lcz_vecs[i] @ jac
         eig_basis = (eig_vecs[i,:,-k:]).T # k x n
         jac_lcz_proj = proj(jac_lcz,eig_basis)
-        jac_proj = lcz_vecs[i].T @ jac_lcz_proj
-        jac_proj_energy = jnp.linalg.norm(jac_proj)
-        print(jac_proj_energy)
-        ratios.append(jac_proj_energy)
+        # jac_proj = lcz_vecs[i].T @ jac_lcz_proj
+        # jac_proj_energy = norm(jac_proj)
+        # ratios.append(jac_proj_energy / jac_energy)
+        lcz_ratios.append(norm(jac_lcz_proj) / norm(jac_lcz))
     # average over random samples
-    mean_ratio = jnp.mean(jnp.array(ratios)) / jac_energy
-    return mean_ratio
+    # mean_ratio = jnp.mean(jnp.array(ratios))
+    mean_lcz_ratio = jnp.mean(jnp.array(lcz_ratios))
+    # print(mean_ratio, mean_lcz_ratio)
+    return mean_lcz_ratio
     
     

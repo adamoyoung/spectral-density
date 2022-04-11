@@ -93,18 +93,12 @@ def jjvp(loss, params, batch, v):
     jjvp = jax.vjp(loss_fn, params)[1](jvp)[0]
     return jjvp
 
-def jvp(loss, params, batch, v):
-    # computes J @ v
-    import pdb; pdb.set_trace()
-    loss_fn = lambda _params: loss(_params, batch)
-    jvp = jax.jvp(loss_fn, [params], [v])[1]
-    return jvp
-
 def ggnvp(wz_fn, zl_fn, params, batch, v):
     # compute GGN
     _wz_fn = lambda _params: wz_fn(_params, batch)
+    _zl_fn = lambda _params: zl_fn(_params, batch)
     wz, wz_jvp = jax.jvp(_wz_fn, [params], [v])
-    zl_jvp, zl_hvp = jax.jvp(jax.grad(zl_fn), [wz], [wz_jvp])
+    zl_jvp, zl_hvp = jax.jvp(jax.grad(_zl_fn), [wz], [wz_jvp])
     wz, zw_jvp_fn = jax.vjp(_wz_fn, params) 
     zw_zl_wz = zw_jvp_fn(zl_hvp)[0]
     return zw_zl_wz
@@ -154,7 +148,7 @@ def get_jjvp_fn(loss, params, batches):
 
 def get_jvp_fn(loss, params, batches):
 
-  # @jax.jit
+  @jax.jit
   def jitted_jvp(params, batch, v):
     return jvp(loss, params, batch, v)
 
@@ -265,3 +259,36 @@ def get_ggnvp_fn(wz_fn, zl_fn, params, batches):
     return ggn_vp_flat
 
   return ggnvp_fn, unravel, flat_params.shape[0]
+
+def jvp(loss, params, batch, v):
+    # computes J @ v
+    
+    loss_fn = lambda _params: loss(_params, batch)
+    jvp = jax.jvp(loss_fn, [params], [v])[1]
+    return jvp
+
+def get_jac(loss, params, batches):
+
+    flat_params, unravel = ravel_pytree(params)
+
+    def flat_loss(flat_params,batch):
+      return loss(unravel(flat_params),batch)
+
+    def jac(flat_params,batch):
+      return jax.grad(flat_loss,argnums=0)(flat_params,batch)
+
+    @jax.jit
+    def jitted_jac(flat_params,batch):
+      return jac(flat_params,batch)
+    
+    jac_flat = np.zeros_like(flat_params)
+    # TODO(gilmer): Get rid of this for loop by using either vmap or lax.fori.
+    count = 0
+    for batch in batches():
+      partial_jac_flat = jitted_jac(flat_params, batch)
+      jac_flat = jac_flat + partial_jac_flat
+      count += 1
+    if count == 0:
+      raise ValueError("Provided generator did not yield any data.")
+    jac_flat /= count
+    return jac_flat
