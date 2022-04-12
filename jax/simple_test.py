@@ -46,40 +46,6 @@ def main():
         # could also be m_loss_fn(p_model_fn(params))
         return lr_loss_fn(params["L"],params["R"])
 
-    # # compute GGNvp
-    # from jax.flatten_util import ravel_pytree
-    # from jax import jvp, vjp, grad
-
-    # flat_params, unravel = ravel_pytree(params)
-    # # v = jnp.ones_like(flat_params)
-    # v = jnp.arange(flat_params.shape[0]).astype(jnp.float64)
-
-    # def model_fn_flat(flat_params):
-    #     params = unravel(flat_params)
-    #     return model_fn(params["L"],params["R"]).reshape(-1)
-    # def m_loss_fn_flat(flat_M_hat):
-    #     return m_loss_fn(flat_M_hat.reshape(N,N))
-    # J_zw = jax.jacfwd(model_fn_flat)(flat_params)
-    # H_z = jax.hessian(m_loss_fn_flat)(model_fn_flat(flat_params))
-    # print(J_zw.shape,H_z.shape,v.shape)
-    # GGNvp_1 = J_zw.T @ H_z @ J_zw @ v
-    # print(GGNvp_1.shape)
-
-    # def ggnvp(wz_fn, zl_fn, params, batch, v):
-    #     if not (batch is None):
-    #         _wz_fn = lambda _params: wz_fn(_params, batch)
-    #     else:
-    #         _wz_fn = wz_fn
-    #     wz, wz_jvp = jvp(_wz_fn, [params], [v])
-    #     zl_jvp, zl_hvp = jvp(grad(zl_fn), [wz], [wz_jvp])
-    #     wz, zw_jvp_fn = vjp(_wz_fn, params) 
-    #     zw_zl_wz = zw_jvp_fn(zl_hvp)[0]
-    #     return zw_zl_wz
-
-    # GGNvp_2 = ggnvp(model_fn_flat,m_loss_fn_flat,flat_params,None,v)
-    # print(GGNvp_2.shape)
-
-    # import pdb; pdb.set_trace()
 
     print(">>> initial")
     print("Loss",p_loss_fn(params))
@@ -143,12 +109,12 @@ def main():
     # plot(ts,L_norm=L_norms)
     # plot(ts,R_norm=R_norms)
 
-    spec_d = analyze(paramses[0],p_loss_fn,p_model_fn,m_loss_fn,mvp_type="ggnvp",num_samples=1,get_jac=True)
+    spec_d = analyze(paramses[0],p_loss_fn,p_model_fn,m_loss_fn,mvp_type="jjvp",num_samples=10,get_jac=True)
     metric_d = compute_metrics(spec_d)
     pprint(metric_d)
     # plot_density(spec_d["grids"],spec_d["density"])
 
-    spec_d = analyze(paramses[100],p_loss_fn,p_model_fn,m_loss_fn,mvp_type="ggnvp",num_samples=1,get_jac=True)
+    spec_d = analyze(paramses[100],p_loss_fn,p_model_fn,m_loss_fn,mvp_type="jjvp",num_samples=10,get_jac=True)
     metric_d = compute_metrics(spec_d)
     pprint(metric_d)
     # plot_density(spec_d["grids"],spec_d["density"])
@@ -230,6 +196,10 @@ def analyze(params,p_loss_fn,p_model_fn,m_loss_fn,mvp_type="hvp",order=90,num_sa
 
         jjvp, unravel, num_params = hessian_computation.get_jjvp_fn(jjvp_loss_fn, params, batches_fn)
         mvp_cl = lambda v: jjvp(params, v) / num_batches
+
+    else:
+
+        raise ValueError(f"invald mvp_type {mvp_type}")
 
     if get_jac:
 

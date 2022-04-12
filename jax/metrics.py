@@ -119,25 +119,52 @@ def proj(u,V):
     u_proj = jnp.sum(U_proj,axis=0)
     return u_proj
 
+# def gradient_energy_ratio(jac,eig_vecs,lcz_vecs,k):
+
+#     # compute full eigenvalue
+#     num_draws = eig_vecs.shape[0]
+#     ratios_1 = []
+#     ratios_2 = []
+#     ratios_3 = []
+#     ratios_4 = []
+#     ratios_5 = []
+#     jac_energy = norm(jac)
+#     # print(norm(jac))
+#     # print(norm(lcz_vecs[0].T @ lcz_vecs[0] @ jac))
+#     # print(norm((lcz_vecs[0].T @ lcz_vecs[0]) @ jac))
+#     for i in range(num_draws):
+#         jac_lcz = lcz_vecs[i] @ jac
+#         eig_basis = eig_vecs[i].T
+#         eig_basis_k = (eig_vecs[i,:,-k:]).T # k x n
+#         jac_lcz_proj = proj(jac_lcz,eig_basis)
+#         jac_lcz_proj_k = proj(jac_lcz,eig_basis_k)
+#         jac_proj = lcz_vecs[i].T @ jac_lcz_proj
+#         jac_proj_k = lcz_vecs[i].T @ jac_lcz_proj_k
+#         jac_ = lcz_vecs[i].T @ jac_lcz
+#         ratios_1.append(norm(jac_proj_k) / jac_energy)
+#         ratios_2.append(norm(jac_lcz_proj_k) / norm(jac_lcz))
+#         ratios_3.append(norm(jac_lcz_proj_k) / norm(jac_lcz_proj))
+#         ratios_4.append(norm(jac_proj_k) / norm(jac_proj))
+#         ratios_5.append(norm(jac_proj_k) / norm(jac_))
+#     # average over random samples
+#     mean_ratio_1 = jnp.mean(jnp.array(ratios_1))
+#     mean_ratio_2 = jnp.mean(jnp.array(ratios_2))
+#     mean_ratio_3 = jnp.mean(jnp.array(ratios_3))
+#     mean_ratio_4 = jnp.mean(jnp.array(ratios_4))
+#     mean_ratio_5 = jnp.mean(jnp.array(ratios_5))
+#     print(mean_ratio_1,mean_ratio_2,mean_ratio_3,mean_ratio_4,mean_ratio_5)
+#     return mean_ratio_2
+    
 def gradient_energy_ratio(jac,eig_vecs,lcz_vecs,k):
 
     # compute full eigenvalue
-    # jac_energy = norm(jac)
     num_draws = eig_vecs.shape[0]
-    # ratios = []
-    lcz_ratios = []
+    ratios = []
     for i in range(num_draws):
         jac_lcz = lcz_vecs[i] @ jac
-        eig_basis = (eig_vecs[i,:,-k:]).T # k x n
-        jac_lcz_proj = proj(jac_lcz,eig_basis)
-        # jac_proj = lcz_vecs[i].T @ jac_lcz_proj
-        # jac_proj_energy = norm(jac_proj)
-        # ratios.append(jac_proj_energy / jac_energy)
-        lcz_ratios.append(norm(jac_lcz_proj) / norm(jac_lcz))
+        eig_basis_k = (eig_vecs[i,:,-k:]).T # k x n
+        jac_lcz_proj_k = proj(jac_lcz,eig_basis_k)
+        ratios.append(norm(jac_lcz_proj_k) / norm(jac_lcz))
     # average over random samples
-    # mean_ratio = jnp.mean(jnp.array(ratios))
-    mean_lcz_ratio = jnp.mean(jnp.array(lcz_ratios))
-    # print(mean_ratio, mean_lcz_ratio)
-    return mean_lcz_ratio
-    
-    
+    mean_ratio = jnp.mean(jnp.array(ratios))
+    return mean_ratio
