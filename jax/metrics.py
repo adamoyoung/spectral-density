@@ -168,3 +168,17 @@ def gradient_energy_ratio(jac,eig_vecs,lcz_vecs,k):
     # average over random samples
     mean_ratio = jnp.mean(jnp.array(ratios))
     return mean_ratio
+
+def gradient_energy(jac):
+    return norm(jac)
+
+def trace_over_topk(eig_vals,k):
+    assert k > 0, k
+    # sort
+    eig_vals = eig_vals[:,::-1] # largest to smallest
+    # trace (sum over all)
+    trace = jnp.sum(eig_vals,axis=1)
+    # sum over k
+    topk_eig_vals = jnp.sum(eig_vals[:,:k],axis=1)
+    # average over samples
+    return jnp.mean(trace / topk_eig_vals)

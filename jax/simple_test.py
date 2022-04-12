@@ -109,12 +109,14 @@ def main():
     # plot(ts,L_norm=L_norms)
     # plot(ts,R_norm=R_norms)
 
-    spec_d = analyze(paramses[0],p_loss_fn,p_model_fn,m_loss_fn,mvp_type="jjvp",num_samples=10,get_jac=True)
+    mvp_type = "jjvp"
+    num_samples = 2
+    spec_d = analyze(paramses[0],p_loss_fn,p_model_fn,m_loss_fn,mvp_type=mvp_type,num_samples=num_samples,get_jac=True)
     metric_d = compute_metrics(spec_d)
     pprint(metric_d)
     # plot_density(spec_d["grids"],spec_d["density"])
 
-    spec_d = analyze(paramses[100],p_loss_fn,p_model_fn,m_loss_fn,mvp_type="jjvp",num_samples=10,get_jac=True)
+    spec_d = analyze(paramses[100],p_loss_fn,p_model_fn,m_loss_fn,mvp_type=mvp_type,num_samples=num_samples,get_jac=True)
     metric_d = compute_metrics(spec_d)
     pprint(metric_d)
     # plot_density(spec_d["grids"],spec_d["density"])
@@ -286,27 +288,33 @@ def compute_spectrum_exact(params,subset="LR"):
 
 def compute_metrics(spec_d):
 
+    start = time.time()
     l1_energy_pos, l1_energy_neg = metrics.l1_energy(spec_d["density"],spec_d["grids"])
     l1_energy_log_ratio = jnp.log10(l1_energy_pos) - jnp.log10(l1_energy_neg)
     max_eig_val = metrics.max_eig_val(spec_d["eig_vals"])
     min_eig_val = metrics.min_eig_val(spec_d["eig_vals"])
     trace = metrics.trace_eig_vals(spec_d["eig_vals"])
-    eig_val_ratio = metrics.eig_val_ratio(spec_d["eig_vals"],10)
-    trace_over_max = trace / max_eig_val
+    # trace_over_max = trace / max_eig_val
     metric_d = {
         "l1_energy_pos": l1_energy_pos,
         "l1_energy_neg": l1_energy_neg,
         "l1_energy_log_ratio": l1_energy_log_ratio,
         "max_eig_val": max_eig_val,
         "min_eig_val": min_eig_val,
-        "trace": trace,
-        "eig_val_ratio": eig_val_ratio,
-        "trace_over_max": trace_over_max
+        "trace": trace
     }
+    for k in range(10):
+        metric_d[f"trace_ratio_top{k+1}"] = metrics.trace_over_topk(spec_d["eig_vals"],k+1)
+        metric_d[f"eig_val_ratio_top{k+1}"] = metrics.eig_val_ratio(spec_d["eig_vals"],k+1)
     if "jac" in spec_d:
-        grad_energy_ratio = metrics.gradient_energy_ratio(spec_d["jac"],spec_d["eig_vecs"],spec_d["lcz_vecs"],10)
-        metric_d["grad_energy_ratio"] = grad_energy_ratio
+        grad_energy = metrics.gradient_energy(spec_d["jac"])
+        metric_d["gradient_energy"] = grad_energy
+        for k in range(10):
+            grad_energy_ratio_k = metrics.gradient_energy_ratio(spec_d["jac"],spec_d["eig_vecs"],spec_d["lcz_vecs"],k+1)
+            metric_d[f"grad_energy_ratio_top{k+1}"] = grad_energy_ratio_k
     metric_d = {k:float(jnp.nan_to_num(v,nan=-1.)) for k,v in metric_d.items()}
+    end = time.time()
+    print("Metrics time: {}".format(end-start))
     return metric_d
 
 if __name__ == "__main__":
