@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import copy
 from pprint import pprint
 from tqdm import tqdm
+import seaborn as sns
 
 import lanczos
 import density as density_lib
@@ -16,19 +17,25 @@ import metrics
 import time
 
 
-def main():
+def setup(train_mode="sgd",init="bad"):
 
     D = 10 #1000
     N = 100
     master_key = jax.random.PRNGKey(25412541)
     init_keys = jax.random.split(master_key,num=10+1)
     master_key = init_keys[0]
-    L = 100*jax.random.normal(init_keys[1],shape=(N,D)) # L is bigger
-    R = 0.01*jax.random.normal(init_keys[2],shape=(N,D))
+    if init == "bad":
+        L = 100*jax.random.normal(init_keys[1],shape=(N,D)) # L is bigger
+        R = 0.01*jax.random.normal(init_keys[2],shape=(N,D))
+    else:
+        assert init == "good"
+        L = jax.random.normal(init_keys[1],shape=(N,D)) # L is bigger
+        R = jax.random.normal(init_keys[2],shape=(N,D))
     M = 0.5*jax.random.normal(init_keys[3],shape=(N,N))
     # make symmetric
     M = M + M.T
     params = {"L": L, "R": R}
+
 
     def lr_model_fn(L,R):
         return L @ R.T
@@ -46,6 +53,14 @@ def main():
         # could also be m_loss_fn(p_model_fn(params))
         return lr_loss_fn(params["L"],params["R"])
 
+    print(">>> Optimal")
+    # compute analytic solution
+    U,S,V = jnp.linalg.svd(M,hermitian=True)
+    M_hat = U[:,:D] @ jnp.diag(S[:D]) @ V[:D,:]
+    opt_loss = m_loss_fn(M_hat)
+    opt_norm = jnp.linalg.norm(M_hat)
+    print("Loss",opt_loss)
+    print("M_norm",opt_norm)
 
     print(">>> initial")
     print("Loss",p_loss_fn(params))
@@ -55,23 +70,27 @@ def main():
 
     T = 10000
 
-    alpha = 0.0001 # 0.01
-    alpha_min = 0.00001
-    alpha_max = 1.0
-    # optimizer = optax.adam(learning_rate=alpha)
-    # optimizer = optax.sgd(learning_rate=alpha)
-    schedule_fn = optax.warmup_exponential_decay_schedule(
-        init_value=alpha_min,
-        peak_value=alpha_max,
-        end_value=None,#10**((jnp.log10(alpha_min)+jnp.log10(alpha_max))/2),
-        warmup_steps=T//3,
-        transition_steps=1,
-        decay_rate=0.99
+    if train_mode == "sgd":
 
-    )
-    optimizer = optax.chain(optax.scale(-alpha))
-    # optimizer = optax.chain(optax.scale_by_adam(eps=1e-4),optax.scale(-alpha))
-    # optimizer = optax.chain(optax.scale(-1.),optax.scale_by_schedule(schedule_fn))
+        alpha = 0.01
+        optimizer = optax.chain(optax.scale(-alpha))
+
+    else:
+
+        assert train_mode == "warmup"
+        alpha_min = 0.00001
+        alpha_max = 1.0
+        schedule_fn = optax.warmup_exponential_decay_schedule(
+            init_value=alpha_min,
+            peak_value=alpha_max,
+            end_value=None,#10**((jnp.log10(alpha_min)+jnp.log10(alpha_max))/2),
+            warmup_steps=T//3,
+            transition_steps=1,
+            decay_rate=0.99
+
+        )
+        optimizer = optax.chain(optax.scale(-1.),optax.scale_by_schedule(schedule_fn))
+    
     opt_state = optimizer.init(params)
 
     @jax.jit
@@ -84,7 +103,11 @@ def main():
     ts, paramses, losses, L_norms, R_norms, LR_norms = [], [], [], [], [], []
 
     for t in range(T):
-        loss, params, opt_state = update_fn(t,params,opt_state)
+        if t > 0:
+            loss, params, opt_state = update_fn(t,params,opt_state)
+        else:
+            # initial loss
+            loss = p_loss_fn(params)
         # print(">>>", t, loss, jnp.linalg.norm(params["L"]),jnp.linalg.norm(params["R"]))
         ts.append(t)
         paramses.append(copy.deepcopy(params))
@@ -93,32 +116,151 @@ def main():
         R_norms.append(jnp.linalg.norm(params["R"]))
         LR_norms.append(jnp.linalg.norm(params["L"]@params["R"].T))
 
+
     print(">>> final")
     print("Loss",losses[-1])
     print("L_norm",L_norms[-1])
     print("R_norm",R_norms[-1])
     print("M_norm",jnp.linalg.norm(M))
 
-    # final_params = params
-    # final_loss = loss(params)
-    # print(">>> final", final_loss)
-    # print(jnp.linalg.norm(final_params["L"]),jnp.linalg.norm(final_params["R"]))
+    result_d = {
+        "ts": jnp.array(ts),
+        "paramses": paramses,
+        "losses": jnp.array(losses),
+        "L_norms": jnp.array(L_norms),
+        "R_norms": jnp.array(R_norms),
+        "LR_norms": jnp.array(LR_norms),
+        "opt_loss": opt_loss,
+        "opt_norm": opt_norm,
+        "p_loss_fn": p_loss_fn,
+        "p_model_fn": p_model_fn,
+        "m_loss_fn": m_loss_fn
+    }
 
-    # plot(ts,Loss=losses,L_norm=L_norms,R_norm=R_norms,LR_norms=LR_norms)
-    # plot(ts,loss=losses)
-    # plot(ts,L_norm=L_norms)
-    # plot(ts,R_norm=R_norms)
+    return result_d
 
-    mvp_type = "jjvp"
-    num_samples = 2
-    spec_d = analyze(paramses[0],p_loss_fn,p_model_fn,m_loss_fn,mvp_type=mvp_type,num_samples=num_samples,get_jac=True)
-    metric_d = compute_metrics(spec_d)
-    pprint(metric_d)
+def plot_loss(result_ds,color_ds):
+    num_plots = 4
+    # cs = sns.color_palette(n_colors=num_plots)
+    fig, axs = plt.subplots(nrows=1,ncols=num_plots,figsize=(15,4))
+    for k,v in result_ds.items():
+        ts = v["ts"]
+        mask = (jnp.arange(len(ts)) % 25) == 0
+        ts = ts[mask]
+        axs[0].plot(ts,v["losses"][mask],label=k,color=color_ds[k])
+        axs[0].set_title("Loss")
+        axs[0].hlines(v["opt_loss"],ts[0],ts[-1],label=None,color="grey",linestyle="--")
+        axs[1].plot(ts,v["L_norms"][mask],label=k,color=color_ds[k])
+        axs[1].set_title("L Norm")
+        axs[2].plot(ts,v["R_norms"][mask],label=k,color=color_ds[k])
+        axs[2].set_title("R Norm")
+        axs[3].plot(ts,v["LR_norms"][mask],label=k,color=color_ds[k])
+        axs[3].set_title("LR Norm")
+        axs[3].hlines(v["opt_norm"],ts[0],ts[-1],label=None,color="grey",linestyle="--")
+    axs[3].legend(loc="upper right")
+    for i in range(num_plots):
+        axs[i].set_yscale("log")
+    # fig.legend(loc=13)
+    fig.tight_layout()
+    # fig.subplots_adjust(right=12/15)
+    fig.savefig("loss.png")
+    plt.show()
+    plt.clf()
+
+def plot_metrics(result_ds,color_ds):
+
+    num_plots = 4
+    # cs = sns.color_palette(n_colors=num_plots)
+    fig, axs = plt.subplots(nrows=1,ncols=num_plots,figsize=(15,4))
+    for k,v in result_ds.items():
+        ts = v["metric_ts"]
+        axs[0].plot(ts,v["hvp_max_eig_val"],label=k,color=color_ds[k])
+        axs[0].set_title("Hessian Eigv 1")
+        axs[1].plot(ts,v["hvp_eig_val_ratio_top10"],label=k,color=color_ds[k])
+        axs[1].set_title("Hessian Eigv 1 / Eigv 10")
+        axs[2].plot(ts,v["ggnvp_trace_ratio_top1"],label=k,color=color_ds[k])
+        axs[2].set_title("Gauss-Newton Trace / Eigv 1")
+        axs[3].plot(ts,v["jjvp_grad_energy_ratio_top1"],label=k,color=color_ds[k])
+        axs[3].set_title("Total / Projected Gradient Energy")
+    axs[0].set_yscale("log")
+    axs[3].legend(loc="upper right")
+    # for i in range(num_plots):
+    #     axs[i].set_yscale("log")
+    fig.tight_layout()
+    fig.savefig("metrics.png")
+    plt.show()
+    plt.clf()
+
+def main():
+
+    sgd_good_d = setup(train_mode="sgd",init="good")
+    sgd_bad_d = setup(train_mode="sgd",init="bad")
+    warmup_d = setup(train_mode="warmup",init="bad")
+
+    result_ds = {
+        "naive_good": sgd_good_d,
+        "naive_bad": sgd_bad_d,
+        "warmup_bad": warmup_d
+    }
+
+    colors = sns.color_palette(n_colors=3)
+    color_ds = {
+        "naive_good": colors[0],
+        "naive_bad": colors[1],
+        "warmup_bad": colors[2]
+    }
+
+    plot_loss(result_ds,color_ds)
+
+    # result_keys = result_ds.keys()
+    for k,v in result_ds.items():
+
+        # v = result_ds[k]
+        num_samples = 1
+        step = 1000
+        T = 10000
+
+        mvp_keys = {
+            "hvp": ["max_eig_val","eig_val_ratio_top10"],
+            "ggnvp": ["trace_ratio_top1"],
+            "jjvp": ["grad_energy_ratio_top1"]
+        }
+        ts = []
+        metrics = {}
+        for mvp_type,keys in mvp_keys.items():
+            for key in keys:
+                mvp_key = mvp_type+"_"+key
+                metrics[mvp_key] = []
+        for t in range(0,T,step):
+            print(f">>> step {t}")
+            for mvp_type in mvp_keys.keys():
+                spec_d = analyze(
+                    v["paramses"][t],
+                    v["p_loss_fn"],
+                    v["p_model_fn"],
+                    v["m_loss_fn"],
+                    mvp_type=mvp_type,
+                    num_samples=num_samples,
+                    get_jac=True
+                )
+                metric_d = compute_metrics(spec_d)
+                for key in mvp_keys[mvp_type]:
+                    metrics[mvp_type+"_"+key].append(metric_d[key])
+            ts.append(t)
+        for kk,vv in metrics.items():
+            result_ds[k][kk] = vv
+        result_ds[k]["metric_ts"] = ts
+
+    plot_metrics(result_ds,color_ds)
+
+    # spec_d = analyze(paramses[0],p_loss_fn,p_model_fn,m_loss_fn,mvp_type=mvp_type,num_samples=num_samples,get_jac=True)
+    # metric_d = compute_metrics(spec_d)
+    # pprint(metric_d)
     # plot_density(spec_d["grids"],spec_d["density"])
 
-    spec_d = analyze(paramses[100],p_loss_fn,p_model_fn,m_loss_fn,mvp_type=mvp_type,num_samples=num_samples,get_jac=True)
-    metric_d = compute_metrics(spec_d)
-    pprint(metric_d)
+    # spec_d = analyze(paramses[100],p_loss_fn,p_model_fn,m_loss_fn,mvp_type=mvp_type,num_samples=num_samples,get_jac=True)
+    # metric_d = compute_metrics(spec_d)
+    # pprint(metric_d)
     # plot_density(spec_d["grids"],spec_d["density"])
 
     # # compute analytic hessian
@@ -136,7 +278,7 @@ def main():
     # R_sigma = jnp.linalg.svd(paramses[4]["R"])[1]
     # print(L_sigma[0],R_sigma[0],L_sigma[0]/R_sigma[0])
 
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
     # density, grids = compute_spectrum(paramses[1])
     # plot_density(grids,density)
@@ -144,24 +286,25 @@ def main():
     # plot_density(grids,density)
 
 
-def plot(ts,**kwargs):
-    num_plots = len(kwargs.keys())
-    cm = plt.cm.get_cmap("viridis",num_plots)
-    fig, axs = plt.subplots(nrows=1,ncols=num_plots)
-    for ax_idx, (k,v) in enumerate(kwargs.items()):
-        ax = axs[ax_idx]
-        ax.plot(ts,v,label=k,color=cm(ax_idx))
-    fig.legend()
-    plt.show()
-    plt.clf()
+# def plot(ts,**kwargs):
+#     num_plots = len(kwargs.keys())
+#     cm = plt.cm.get_cmap("viridis",num_plots)
+#     fig, axs = plt.subplots(nrows=1,ncols=num_plots)
+#     for ax_idx, (k,v) in enumerate(kwargs.items()):
+#         ax = axs[ax_idx]
+#         ax.plot(ts,v,label=k,color=cm(ax_idx))
+#     fig.legend()
+#     fig.tight_layout()
+#     plt.show()
+#     plt.clf()
 
-def plot_density(grids, density, label=None):
-    plt.semilogy(grids, density, label=label)
-    # plt.ylim(1e-10, 1e2)
-    plt.ylabel("Density")
-    plt.xlabel("Eigenvalue")
-#   plt.legend()
-    plt.show()
+# def plot_density(grids, density, label=None):
+#     plt.semilogy(grids, density, label=label)
+#     # plt.ylim(1e-10, 1e2)
+#     plt.ylabel("Density")
+#     plt.xlabel("Eigenvalue")
+# #   plt.legend()
+#     plt.show()
 
 def analyze(params,p_loss_fn,p_model_fn,m_loss_fn,mvp_type="hvp",order=90,num_samples=10,get_jac=False):
 

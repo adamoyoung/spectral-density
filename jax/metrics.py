@@ -169,6 +169,22 @@ def gradient_energy_ratio(jac,eig_vecs,lcz_vecs,k):
     mean_ratio = jnp.mean(jnp.array(ratios))
     return mean_ratio
 
+# def gradient_energy_ratio(jac,eig_vecs,lcz_vecs,k):
+
+#     # compute full eigenvalue
+#     num_draws = eig_vecs.shape[0]
+#     ratios = []
+#     jac_energy = norm(jac)
+#     for i in range(num_draws):
+#         jac_lcz = lcz_vecs[i] @ jac
+#         eig_basis_k = (eig_vecs[i,:,-k:]).T # k x n
+#         jac_lcz_proj_k = proj(jac_lcz,eig_basis_k)
+#         jac_proj_k = lcz_vecs[i].T @ jac_lcz_proj_k
+#         ratios.append(norm(jac_proj_k) / jac_energy)
+#     # average over random samples
+#     mean_ratio = jnp.mean(jnp.array(ratios))
+#     return mean_ratio
+
 def gradient_energy(jac):
     return norm(jac)
 
