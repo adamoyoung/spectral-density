@@ -67,6 +67,8 @@ def setup(train_mode="sgd",init="bad"):
     print("L_norm",jnp.linalg.norm(L))
     print("R_norm",jnp.linalg.norm(R))
     print("M_norm",jnp.linalg.norm(M))
+    print("L_sigma",jnp.linalg.svd(L)[1][0])
+    print("R_sigma",jnp.linalg.svd(R)[1][0])
 
     T = 10000
 
@@ -101,6 +103,7 @@ def setup(train_mode="sgd",init="bad"):
         return loss, params, opt_state
 
     ts, paramses, losses, L_norms, R_norms, LR_norms = [], [], [], [], [], []
+    # L_sigmas, R_sigmas = [], []
 
     for t in range(T):
         if t > 0:
@@ -115,13 +118,16 @@ def setup(train_mode="sgd",init="bad"):
         L_norms.append(jnp.linalg.norm(params["L"]))
         R_norms.append(jnp.linalg.norm(params["R"]))
         LR_norms.append(jnp.linalg.norm(params["L"]@params["R"].T))
-
+        # L_sigmas.append(jnp.linalg.svd(params["R"])[1][0])
+        # R_sigmas.append(jnp.linalg.svd(params["L"])[1][0])
 
     print(">>> final")
     print("Loss",losses[-1])
     print("L_norm",L_norms[-1])
     print("R_norm",R_norms[-1])
     print("M_norm",jnp.linalg.norm(M))
+    print("L_sigma",jnp.linalg.svd(params["L"])[1][0])
+    print("R_sigma",jnp.linalg.svd(params["R"])[1][0])
 
     result_d = {
         "ts": jnp.array(ts),
@@ -134,7 +140,8 @@ def setup(train_mode="sgd",init="bad"):
         "opt_norm": opt_norm,
         "p_loss_fn": p_loss_fn,
         "p_model_fn": p_model_fn,
-        "m_loss_fn": m_loss_fn
+        "m_loss_fn": m_loss_fn,
+        "lr_loss_fn": lr_loss_fn
     }
 
     return result_d
@@ -164,7 +171,7 @@ def plot_loss(result_ds,color_ds):
     fig.tight_layout()
     # fig.subplots_adjust(right=12/15)
     fig.savefig("loss.png")
-    plt.show()
+    # plt.show()
     plt.clf()
 
 def plot_metrics(result_ds,color_ds):
@@ -174,15 +181,16 @@ def plot_metrics(result_ds,color_ds):
     fig, axs = plt.subplots(nrows=1,ncols=num_plots,figsize=(15,4))
     for k,v in result_ds.items():
         ts = v["metric_ts"]
-        axs[0].plot(ts,v["hvp_max_eig_val"],label=k,color=color_ds[k])
+        axs[0].plot(ts,v["lr_max_eig_val"],label=k,color=color_ds[k])
         axs[0].set_title("Hessian Eigv 1")
-        axs[1].plot(ts,v["hvp_eig_val_ratio_top10"],label=k,color=color_ds[k])
+        axs[1].plot(ts,v["lr_eig_val_ratio_top10"],label=k,color=color_ds[k])
         axs[1].set_title("Hessian Eigv 1 / Eigv 10")
-        axs[2].plot(ts,v["ggnvp_trace_ratio_top1"],label=k,color=color_ds[k])
-        axs[2].set_title("Gauss-Newton Trace / Eigv 1")
-        axs[3].plot(ts,v["jjvp_grad_energy_ratio_top1"],label=k,color=color_ds[k])
-        axs[3].set_title("Total / Projected Gradient Energy")
+        axs[2].plot(ts,v["l_max_eig_val"],label=k,color=color_ds[k])
+        axs[2].set_title("L Partial Hessian Eigv 1")
+        axs[3].plot(ts,v["r_max_eig_val"],label=k,color=color_ds[k])
+        axs[3].set_title("R Partial Hessian Eigv 1")
     axs[0].set_yscale("log")
+    axs[3].set_yscale("log")
     axs[3].legend(loc="upper right")
     # for i in range(num_plots):
     #     axs[i].set_yscale("log")
@@ -220,32 +228,42 @@ def main():
         step = 1000
         T = 10000
 
-        mvp_keys = {
-            "hvp": ["max_eig_val","eig_val_ratio_top10"],
-            "ggnvp": ["trace_ratio_top1"],
-            "jjvp": ["grad_energy_ratio_top1"]
-        }
+        # mvp_keys = {
+        #     "hvp": ["max_eig_val","eig_val_ratio_top10"],
+        #     # "ggnvp": ["trace_ratio_top1"],
+        #     # "jjvp": ["grad_energy_ratio_top1"]
+        # }
         ts = []
-        metrics = {}
-        for mvp_type,keys in mvp_keys.items():
-            for key in keys:
-                mvp_key = mvp_type+"_"+key
-                metrics[mvp_key] = []
+        metrics = {
+            "lr_max_eig_val": [],
+            "lr_eig_val_ratio_top10": [],
+            "l_max_eig_val": [],
+            "r_max_eig_val": []
+        }
         for t in range(0,T,step):
             print(f">>> step {t}")
-            for mvp_type in mvp_keys.keys():
-                spec_d = analyze(
-                    v["paramses"][t],
-                    v["p_loss_fn"],
-                    v["p_model_fn"],
-                    v["m_loss_fn"],
-                    mvp_type=mvp_type,
-                    num_samples=num_samples,
-                    get_jac=True
-                )
-                metric_d = compute_metrics(spec_d)
-                for key in mvp_keys[mvp_type]:
-                    metrics[mvp_type+"_"+key].append(metric_d[key])
+            lr_spec_d = compute_spectrum_exact(
+                v["lr_loss_fn"],
+                v["paramses"][t],
+                subset="LR"
+            )
+            lr_metric_d = compute_metrics(lr_spec_d)
+            l_spec_d = compute_spectrum_exact(
+                v["lr_loss_fn"],
+                v["paramses"][t],
+                subset="L"
+            )
+            l_metric_d = compute_metrics(l_spec_d)
+            r_spec_d = compute_spectrum_exact(
+                v["lr_loss_fn"],
+                v["paramses"][t],
+                subset="R"
+            )
+            r_metric_d = compute_metrics(r_spec_d)
+            metrics["lr_max_eig_val"].append(lr_metric_d["max_eig_val"])
+            metrics["lr_eig_val_ratio_top10"].append(lr_metric_d["eig_val_ratio_top10"])
+            metrics["l_max_eig_val"].append(l_metric_d["max_eig_val"])
+            metrics["r_max_eig_val"].append(r_metric_d["max_eig_val"])
             ts.append(t)
         for kk,vv in metrics.items():
             result_ds[k][kk] = vv
@@ -401,7 +419,7 @@ def compute_spectrum(mvp_cl,num_params,jac,order,num_samples):
     return out_d
 
 # @jax.jit
-def compute_spectrum_exact(params,subset="LR"):
+def compute_spectrum_exact(lr_loss_fn,params,subset="LR",cutoff=90):
 
     # N = hessian.shape[0] // 2
     if subset == "L":
@@ -417,13 +435,22 @@ def compute_spectrum_exact(params,subset="LR"):
         h_loss_fn = pr_loss_fn
     else:
         assert subset == "LR"
+        @jax.jit
+        def p_loss_fn(_params):
+            return lr_loss_fn(_params["L"],_params["R"])
         h_loss_fn = p_loss_fn
     hessian = hessian_computation.full_hessian(h_loss_fn,params)
     vals, vecs = jnp.linalg.eigh(hessian)
-    density, grids = density_lib.eigv_to_density(vals.reshape(1,-1), grid_len=10000, sigma_squared=1e-5)
+    # print(subset,jnp.min(vals),jnp.max(vals))
+    sort_idx = jnp.argsort(vals)[-cutoff:]
+    vals = vals[sort_idx]
+    vecs = vecs[:,sort_idx]
+    vals = jnp.expand_dims(vals,0)
+    vecs = jnp.expand_dims(vecs,0)
+    density, grids = density_lib.eigv_to_density(vals, grid_len=10000, sigma_squared=1e-5)
     out_d = {
-        "vals": vals,
-        "vecs": vecs,
+        "eig_vals": vals,
+        "eig_vecs": vecs,
         "density": density,
         "grids": grids
     }
@@ -449,7 +476,7 @@ def compute_metrics(spec_d):
     for k in range(10):
         metric_d[f"trace_ratio_top{k+1}"] = metrics.trace_over_topk(spec_d["eig_vals"],k+1)
         metric_d[f"eig_val_ratio_top{k+1}"] = metrics.eig_val_ratio(spec_d["eig_vals"],k+1)
-    if "jac" in spec_d:
+    if "jac" in spec_d and "lcz_vecs" in spec_d:
         grad_energy = metrics.gradient_energy(spec_d["jac"])
         metric_d["gradient_energy"] = grad_energy
         for k in range(10):
